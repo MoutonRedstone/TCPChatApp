@@ -1,6 +1,5 @@
 import java.io.*;
 import java.net.Socket;
-import java.time.LocalTime;
 
 public class ClientHandler {
     private static final int MAX_USERNAME_LENGTH = 24;
@@ -18,9 +17,9 @@ public class ClientHandler {
     private boolean connected;
     private int muteLevel;
 
-    public ClientHandler(Socket connection) throws IOException {
+    public ClientHandler(Socket connection, long sessionID) throws IOException {
         this.connection = connection;
-        this.sessionID =  (connection.getInetAddress().hashCode()*100000L) + LocalTime.now().toSecondOfDay();
+        this.sessionID =  sessionID;
         this.reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
         this.output = new PrintWriter(connection.getOutputStream(), true);
         this.clientUsername = "";
@@ -49,7 +48,7 @@ public class ClientHandler {
     }
 
     public static boolean isUsernameTaken(String username){
-        for (ClientHandler client : Main.clients){
+        for (ClientHandler client : TCPChatServer.clients){
             if (client.getClientUsername().equals(username)){
                 return true;
             }
@@ -58,8 +57,8 @@ public class ClientHandler {
     }
 
     public void sendToClient(String data){sendToClient(data, true);}
-    public void sendToClient(String data, boolean autoLfCr) {
-        output.print(data + (autoLfCr?"\n\r":""));
+    public void sendToClient(String data, boolean autoCrLf) {
+        output.print(data + (autoCrLf?"\r\n":""));
         output.flush();
     }
 
@@ -100,15 +99,15 @@ public class ClientHandler {
                     sendToClient(">> Ce nom d'utilisateur est déjà utilisé");
                 }
                 else{
-                    Main.broadcastRename(this.clientUsername, potentialUsername);
+                    TCPChatServer.broadcastRename(this.clientUsername, potentialUsername);
                     this.clientUsername = potentialUsername;
                     System.out.println("Client " + this + " renamed themselves");
                 }
             }
         }
-        else if(params[0].equals("connected")){
+        else if(params[0].equals("connected") || params[0].equals("ls")){
             String message = "";
-            for (ClientHandler client : Main.clients){
+            for (ClientHandler client : TCPChatServer.clients){
                 message += "'" + client.getClientUsername() + "'" + (client.getMuteLevel()>0?" (muted)":"") + "\n\r";
             }
             sendToClient(">> Voilà la liste des membres connectés :\n\r" + message, false);
@@ -153,7 +152,7 @@ public class ClientHandler {
     }
 
     public void whisperTo(String username, String data){
-        ClientHandler target = Main.getClientByUsername(username);
+        ClientHandler target = TCPChatServer.getClientByUsername(username);
         if (target==null){
             sendToClient(">> Cet utilisateur n'existe pas");
         }else if(target.muteLevel == 2){
@@ -184,14 +183,14 @@ public class ClientHandler {
                 }
             }
             connection.setSoTimeout(600000); //Timeout de 10 minutes
-            Main.broadcastJoin(this);
+            TCPChatServer.broadcastJoin(this);
             // Boucle de communication avec le server
             while (this.connected){
                 String message = receiveNext();
                 if (message.charAt(0) == '/'){
                     executeCommand(message.substring(1));
                 }else{
-                    Main.broadcastMessage(this, message);
+                    TCPChatServer.broadcastMessage(this, message);
                 }
             }
         } catch (Exception e){
@@ -219,10 +218,10 @@ public class ClientHandler {
     }
 
     public synchronized void closeConnection(){
-        serverStopper.interrupt();
         if (!this.connected){
             return;
         }
+        serverStopper.interrupt();
         System.out.println("Client " + this + " lost connection");
         try {
             this.connection.getInputStream().close();
@@ -230,7 +229,7 @@ public class ClientHandler {
             connection.close();
         } catch (IOException e) { }
         this.connected = false;
-        Main.clients.remove(this);
-        Main.broadcastLeave(this);
+        TCPChatServer.clients.remove(this);
+        TCPChatServer.broadcastLeave(this);
     }
 }
